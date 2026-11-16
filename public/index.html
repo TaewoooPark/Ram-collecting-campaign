@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#201f17">
+  <meta name="description" content="내 램을 달고, 맡기고, 돌려받는 접수창구.">
+  <title>램모으기 운동</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <main id="counter" aria-label="램 한 장을 건네 저울에 다는 접수창구">
+    <div class="photograph" id="photograph" role="img" aria-label="램을 받는 접수창구"></div>
+    <div class="light-leak" aria-hidden="true"></div>
+    <button id="virtual" class="virtual-gift" type="button" title="메모리를 추가로 쓰지 않고 한 번 기부합니다" hidden>가상 기부<span id="virtual-count"></span></button>
+    <button id="reset" class="reset-experience" type="button" title="맡긴 램을 모두 돌려받고 내 기록을 지웁니다" hidden>초기화</button>
+    <div class="desk">
+      <button id="weigh" type="button" class="paper-tag" hidden>
+        <span class="tag-pin" aria-hidden="true"></span>
+        <span id="weigh-label">램 달아보기</span><span class="tag-arrow" aria-hidden="true">↗</span>
+      </button>
+      <div class="returned" id="returned" hidden>
+        <span class="stamp" aria-hidden="true">접수</span>
+        <span id="balance"></span>
+        <button type="button" id="give-again">더 기부하기</button>
+        <button type="button" id="release">돌려받기</button>
+      </div>
+    </div>
+    <p class="announce" role="status" aria-live="polite" id="announcement"></p>
+  </main>
+  <dialog id="receipt" aria-labelledby="question">
+    <form id="form">
+      <div class="ticket-head">
+        <div class="scale-dial" aria-hidden="true"><i></i></div>
+        <p id="device-reading"></p>
+      </div>
+      <h1 id="question">얼마를 기부하시겠습니까?</h1>
+      <fieldset id="choices"><legend class="sr-only">기부할 용량</legend>
+        <label><input type="radio" name="amount" value="4" aria-label="4메가바이트" checked><span>4</span></label>
+        <label><input type="radio" name="amount" value="8" aria-label="8메가바이트"><span>8</span></label>
+        <label><input type="radio" name="amount" value="16" aria-label="16메가바이트"><span>16</span></label>
+      </fieldset>
+      <div class="unit" aria-hidden="true">메가바이트</div>
+      <p class="terms" id="terms">이 창을 보는 동안 선택한 만큼 메모리를 씁니다.</p>
+      <p id="error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cancel">그만두기</button>
+        <button type="submit" id="give">기부하기</button>
+      </div>
+    </form>
+  </dialog>
+  <noscript>접수창구를 열려면 자바스크립트를 켜 주세요.</noscript>
+</body>
+</html>
