@@ -5,6 +5,21 @@ import { Donation, holdingLimit, megabyte } from '../public/campaign.mjs';
 import { freshExperience, updateExperience, sceneFor } from '../public/experience.mjs';
 import { sceneDescriptions } from '../public/scenes.mjs';
 
+test('each mobile and desktop preview pack contains ten valid WebP frames', async () => {
+  for (let first = 1; first <= sceneDescriptions.length; first += 10) {
+    for (const suffix of ['', '-p']) {
+      const key = String(first).padStart(2, '0') + suffix;
+      const { default: frames } = await import('../public/scenes/previews/' + key + '.mjs');
+      assert.equal(frames.length, Math.min(10, sceneDescriptions.length - first + 1));
+      for (const frame of frames) {
+        const buffer = Buffer.from(frame, 'base64');
+        assert.equal(buffer.toString('ascii', 8, 12), 'WEBP');
+        assert.equal(buffer.readUInt32LE(4) + 8, buffer.length);
+      }
+    }
+  }
+});
+
 test('every scene has a Korean description and a WebP for both screen orientations', async () => {
   for (const [index, description] of sceneDescriptions.entries()) {
     assert.match(description, /[가-힣]/);

@@ -8,70 +8,91 @@ const receipt = get('receipt');
 const weigh = get('weigh');
 const account = new Donation();
 const portable = matchMedia('(max-aspect-ratio: 4/5)');
-const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-let ledger, history = freshExperience(), scene = 1, resetting = false;
-let renderPass = 0, painting = false, preload = null, fade = null, retryPhoto, noticeTimer;
+const originals = new Map();
+const previewPacks = new Map();
+let ledger, history = freshExperience(), scene = 1, resetting = false, resetCommit, pendingGifts = 0;
+let view = 0, targetURL = '', retryPhoto, noticeTimer;
 
-function sceneURL(number) {
-  return './scenes/' + String(number).padStart(2, '0') + (portable.matches ? '-p' : '') + '.webp';
+function sceneFile(number) {
+  return String(number).padStart(2, '0') + (portable.matches ? '-p' : '');
 }
-function loadPhoto(url) {
+function original(url) {
+  if (originals.has(url)) return originals.get(url);
   const image = new Image();
   image.alt = '';
-  image.decoding = 'async';
   image.src = url;
-  return image;
+  const entry = { image, ready: false };
+  entry.decoded = image.decode().then(() => entry.ready = true, () => {
+    if (originals.get(url) === entry) originals.delete(url);
+    return false;
+  });
+  originals.set(url, entry);
+  return entry;
 }
-function show(number, interrupt = false) {
-  if (interrupt || number < scene) {
-    renderPass++;
-    fade?.cancel();
-    fade = null;
-    photo.lastElementChild?.previousElementSibling?.remove();
-    painting = false;
+function previews(first) {
+  const key = sceneFile(first);
+  if (!previewPacks.has(key)) {
+    const pack = import('./scenes/previews/' + key + '.mjs').then(module => module.default, () => {
+      previewPacks.delete(key);
+      return null;
+    });
+    previewPacks.set(key, pack);
   }
+  return previewPacks.get(key);
+}
+function show(number, force = false) {
   scene = number;
+  const url = './scenes/' + sceneFile(number) + '.webp';
+  if (document.hidden || (!force && targetURL === url)) return;
+  targetURL = url;
   clearTimeout(retryPhoto);
-  if (!painting && !document.hidden) paintScenes(renderPass);
-}
-async function paintScenes(pass) {
-  painting = true;
-  try {
-    while (pass === renderPass && !document.hidden) {
-      const old = photo.lastElementChild;
-      const current = Number(photo.dataset.frame);
-      // Load a saved visit directly. During a visit, show every intermediate gift in sequence.
-      const number = old && current < scene ? current + 1 : scene;
-      const url = sceneURL(number);
-      if (old?.getAttribute('src') === url) break;
-      const image = preload?.getAttribute('src') === url ? preload : loadPhoto(url);
-      preload = null;
-      try { await image.decode(); } catch {
-        if (pass === renderPass) {
-          if (!old) announce('사진을 불러오고 있습니다.');
-          retryPhoto = setTimeout(() => show(scene), 2500);
-        }
-        break;
-      }
-      if (pass !== renderPass || document.hidden) break;
-      for (const layer of [...photo.children]) if (layer !== old) layer.remove();
-      image.dataset.frame = String(number);
-      photo.append(image);
-      photo.setAttribute('aria-label', sceneDescriptions[number - 1]);
-      photo.dataset.frame = String(number);
-      if (number < sceneDescriptions.length) preload = loadPhoto(sceneURL(number + 1));
-      if (old && number !== 1 && !reducedMotion.matches) {
-        const duration = Math.max(240, 720 / (1 + scene - number));
-        fade = image.animate([{ opacity: 0 }, { opacity: 1 }], { duration, easing: 'ease-in-out' });
-        await fade.finished.catch(() => {}); // Reset or rotation can interrupt a dissolve.
-        if (pass !== renderPass) break;
-        fade = null;
-      }
-      old?.remove();
+  const ticket = ++view;
+  const first = number - (number - 1) % 10;
+  const pack = previews(first);
+  const nextURL = number < sceneDescriptions.length ? './scenes/' + sceneFile(number + 1) + '.webp' : '';
+  for (const [cachedURL, entry] of originals) {
+    if (cachedURL !== url && cachedURL !== nextURL) {
+      if (!entry.ready) entry.image.removeAttribute('src');
+      originals.delete(cachedURL);
     }
-  } finally {
-    if (pass === renderPass) painting = false;
   }
+  function display(image, quality) {
+    image.dataset.frame = String(number);
+    photo.replaceChildren(image);
+    photo.setAttribute('aria-label', sceneDescriptions[number - 1]);
+    photo.dataset.frame = String(number);
+    photo.dataset.quality = quality;
+  }
+  function fullReady(image) {
+    display(image, 'full');
+    if (nextURL) original(nextURL);
+  }
+  const cached = originals.get(url);
+  if (cached?.ready) {
+    fullReady(cached.image);
+  } else {
+    // A tiny copy can paint even if the full-size image is still in transit.
+    pack.then(async frames => {
+      if (!frames || view !== ticket || document.hidden) return;
+      const preview = new Image();
+      preview.alt = '';
+      preview.src = 'data:image/webp;base64,' + frames[number - first];
+      try { await preview.decode(); } catch { return; }
+      if (view === ticket && !document.hidden && photo.lastElementChild?.getAttribute('src') !== url) {
+        display(preview, 'preview');
+      }
+    });
+    // Synchronous bursts need only the latest original. Paints never queue behind one another.
+    requestAnimationFrame(async () => {
+      if (view !== ticket || document.hidden) return;
+      const entry = original(url);
+      const ready = await entry.decoded;
+      if (view !== ticket || document.hidden) return;
+      if (ready) fullReady(entry.image);
+      else retryPhoto = setTimeout(() => show(scene, true), 1500);
+    });
+  }
+  if (number - first >= 5 && first + 10 <= sceneDescriptions.length) previews(first + 10);
 }
 function announce(text) {
   clearTimeout(noticeTimer);
@@ -80,11 +101,15 @@ function announce(text) {
 }
 function applyHistory(next) {
   if (resetting || next.revision < history.revision) return;
-  if (next.epoch !== history.epoch) clearCounter();
+  if (next.epoch !== history.epoch) {
+    pendingGifts = 0;
+    clearCounter();
+  }
   history = next;
   const count = history.virtualGifts;
   get('virtual-count').textContent = count ? ' · ' + count.toLocaleString('ko-KR') + '회' : '';
-  show(sceneFor(history));
+  const savedScene = sceneFor(history);
+  show(pendingGifts ? Math.max(scene, savedScene) : savedScene);
 }
 function clearCounter() {
   account.release();
@@ -98,7 +123,16 @@ function clearCounter() {
   announce('');
 }
 function record(type, bytes) {
-  ledger.change({type, bytes, epoch: history.epoch}).catch(() => announce('이 브라우저에 접수를 기록하지 못했습니다.'));
+  const epoch = history.epoch;
+  pendingGifts++;
+  show(Math.min(sceneDescriptions.length, scene + 1));
+  ledger.change({type, bytes, epoch})
+    .catch(() => announce('이 브라우저에 접수를 기록하지 못했습니다.'))
+    .finally(() => {
+      if (epoch !== history.epoch) return;
+      pendingGifts--;
+      if (!pendingGifts && !resetting) applyHistory(history);
+    });
 }
 function release(tell) {
   if (!account.byteLength) return;
@@ -154,7 +188,13 @@ get('form').addEventListener('submit', event => {
   announce(amount + '메가바이트 접수했습니다.');
 });
 get('virtual').addEventListener('click', () => {
-  if (!resetting && !receipt.open && !document.hidden) record('virtual', 0);
+  if (receipt.open || document.hidden) return;
+  if (resetCommit) {
+    // A click just after the reset belongs to the new visit.
+    resetCommit.then(() => record('virtual', 0), () => {});
+  } else {
+    record('virtual', 0);
+  }
 });
 get('release').addEventListener('click', () => { release(true); weigh.focus({preventScroll: true}); });
 get('reset').addEventListener('click', async () => {
@@ -170,17 +210,21 @@ get('reset').addEventListener('click', async () => {
   } catch { /* Private browsing. */ }
   show(1, true);
   try {
-    const clean = await ledger.change({type: 'reset'});
+    resetCommit = ledger.change({type: 'reset'});
+    const clean = await resetCommit;
     resetting = false;
     applyHistory(clean);
     announce('처음으로 돌아왔습니다.');
   } catch {
     announce('램을 돌려드렸습니다. 기록 초기화를 다시 눌러 주세요.');
-  } finally { resetting = false; }
+  } finally {
+    resetting = false;
+    resetCommit = null;
+  }
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) release(false);
-  else { show(scene); ledger?.refresh(); }
+  else { show(scene, true); ledger?.refresh(); }
 });
 window.addEventListener('pagehide', () => release(false));
 window.addEventListener('pageshow', () => ledger?.refresh());
